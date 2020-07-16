@@ -49,8 +49,8 @@ am_hal_pdm_config_t g_sPdmConfig =
 {
 	.eClkDivider = AM_HAL_PDM_MCLKDIV_1,
 	//.eClkDivider = AM_HAL_PDM_MCLKDIV_2,
-	.eLeftGain = AM_HAL_PDM_GAIN_0DB,
-	.eRightGain = AM_HAL_PDM_GAIN_0DB,
+	.eLeftGain = AM_HAL_PDM_GAIN_P210DB,
+	.eRightGain = AM_HAL_PDM_GAIN_P210DB,
 	//.ui32DecimationRate = 0xC,
 	.ui32DecimationRate = 0x18,
 	//.ui32DecimationRate = 0x30,
@@ -65,7 +65,7 @@ am_hal_pdm_config_t g_sPdmConfig =
 	.bI2SEnable = 1,
 	.bPDMSampleDelay = 0,
 	.bDataPacking = 1,
-	.ePCMChannels = AM_HAL_PDM_CHANNEL_RIGHT,
+	.ePCMChannels = AM_HAL_PDM_CHANNEL_STEREO,
 	.bLRSwap = 0,
 };
 
@@ -117,17 +117,17 @@ void pwm_out(void)
 	am_hal_ctimer_config_single(REF_TIMER,               // ui32TimerNumber
 	                            REF_TIMER_SEG,           // ui32TimerSegment
 	                            (AM_HAL_CTIMER_FN_PWM_REPEAT    |   // ui32ConfigVal
-	                             _VAL2FLD(CTIMER_CTRL0_TMRA0CLK, REF_TIMER_CLOCK) | 
-						AM_HAL_CTIMER_INT_ENABLE));
+	                             AM_HAL_CTIMER_HFRC_12MHZ|
+	                             AM_HAL_CTIMER_INT_ENABLE));
 						//AM_HAL_CTIMER_INT_ENABLE | AM_HAL_CTIMER_PIN_INVERT) );
 
 	//
 	// Set up initial timer periods.
 	//
 	am_hal_ctimer_period_set(REF_TIMER,
-	                         REF_TIMER_SEG, 7, 4);
+	                         REF_TIMER_SEG, 11, 6);
 	am_hal_ctimer_aux_period_set(REF_TIMER,
-	                         REF_TIMER_SEG, 7, 4);
+	                         REF_TIMER_SEG, 11, 6);
 
 	//////////////////////////////////////////////////////////////////////////////////
 
@@ -146,17 +146,16 @@ void pwm_out(void)
 	am_hal_ctimer_config_single(BCLK_TIMER_INV,               // ui32TimerNumber
 	                            BCLK_TIMER_SEG_INV,           // ui32TimerSegment
 	                            (AM_HAL_CTIMER_FN_PWM_REPEAT    |   // ui32ConfigVal
-	                             _VAL2FLD(CTIMER_CTRL0_TMRA0CLK, BCLK_TIMER_CLOCK_INV) | 
-						//AM_HAL_CTIMER_INT_ENABLE));
-						AM_HAL_CTIMER_INT_ENABLE | AM_HAL_CTIMER_PIN_INVERT) );
+	                             AM_HAL_CTIMER_HFRC_12MHZ|
+	                             AM_HAL_CTIMER_INT_ENABLE) );
 
 	//
 	// Set up initial timer periods.
 	//
 	am_hal_ctimer_period_set(BCLK_TIMER_INV,
-	                         BCLK_TIMER_SEG_INV, 7, 4);//BCLK INV
+	                         BCLK_TIMER_SEG_INV, 11, 6);//BCLK INV 1MHz
 	am_hal_ctimer_aux_period_set(BCLK_TIMER_INV,
-	                         BCLK_TIMER_SEG_INV, 7, 4);//BCLK INV
+	                         BCLK_TIMER_SEG_INV, 11, 6);//BCLK INV 
 
 
 	//////////////////////////////////////////////////////////////////////////////////
@@ -224,7 +223,7 @@ initialize_pattern128_counter(uint32_t ui32TimerNumber,
     //
     am_hal_ctimer_output_config(ui32TimerNumber, AM_HAL_CTIMER_TIMERA, ui32OutputPin, 
                               AM_HAL_CTIMER_OUTPUT_NORMAL, 
-                              AM_HAL_GPIO_PIN_DRIVESTRENGTH_12MA);
+                              AM_HAL_GPIO_PIN_DRIVESTRENGTH_2MA);
     //
     // Start the timer.
     //
@@ -272,7 +271,7 @@ initialize_pattern64_counter(uint32_t ui32TimerNumber,
     //
     am_hal_ctimer_output_config(ui32TimerNumber, ui32TimerSegment, ui32OutputPin, 
                               AM_HAL_CTIMER_OUTPUT_NORMAL, 
-                              AM_HAL_GPIO_PIN_DRIVESTRENGTH_12MA);
+                              AM_HAL_GPIO_PIN_DRIVESTRENGTH_2MA);
 
     //
     // Start the timer.
