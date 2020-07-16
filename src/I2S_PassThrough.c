@@ -6,6 +6,12 @@
 #include "am_bsp.h"
 #include "am_util.h"
 
+#define I2S_BCLK 19
+#define I2S_BCLK_CONFIG AM_HAL_PIN_19_I2SBCLK
+#define I2S_WCLK 28 // 0
+#define I2S_WCLK_CONFIG AM_HAL_PIN_28_I2SWCLK
+#define I2S_DATA 45 // 4
+#define I2S_DATA_CONFIG AM_HAL_PIN_45_I2SDAT
 
 #define MCLK_PIN	18
 #define MCLK_TIMER	5
@@ -34,16 +40,6 @@
 
 //*****************************************************************************
 //
-// Global variables.
-//
-//*****************************************************************************
-
-int16_t i16I2SBuf[2][BUF_SIZE] = {{0},{0}};
-uint32_t u32I2SPingpong = 0;
-uint32_t u32FrameSize = BUF_SIZE;
-
-//*****************************************************************************
-//
 // PDM configuration information.
 //
 //*****************************************************************************
@@ -65,38 +61,13 @@ am_hal_pdm_config_t g_sPdmConfig =
 	//.ePDMClkSpeed = AM_HAL_PDM_CLK_3MHZ,
 	//.ePDMClkSpeed = AM_HAL_PDM_CLK_6MHZ,
 	.bInvertI2SBCLK = 0,
-	.ePDMClkSource = AM_HAL_PDM_INTERNAL_CLK,
+	.ePDMClkSource = AM_HAL_PDM_I2S_CLK,
+	.bI2SEnable = 1,
 	.bPDMSampleDelay = 0,
 	.bDataPacking = 1,
 	.ePCMChannels = AM_HAL_PDM_CHANNEL_RIGHT,
 	.bLRSwap = 0,
 };
-
-
-static void timer0_handler(void);
-
-
-/*LSB first to MSB first*/
-uint16_t reverse_bit16(uint16_t x)
-{
-	x = ((x & 0x5555) << 1) | ((x & 0xAAAA) >> 1);
-	x = ((x & 0x3333) << 2) | ((x & 0xCCCC) >> 2);
-	x = ((x & 0x0F0F) << 4) | ((x & 0xF0F0) >> 4);
-	return (x << 8) | (x >> 8);
-}
-
-
-// Timer Interrupt Service Routine (ISR)
-void am_ctimer_isr(void)
-{
-    uint32_t ui32Status;
-	//am_hal_gpio_output_toggle(6);
-
-    ui32Status = am_hal_ctimer_int_status_get(false);
-    am_hal_ctimer_int_clear(ui32Status);
-
-    am_hal_ctimer_int_service(ui32Status);
-}
 
 void pwm_out(void)
 {
@@ -323,6 +294,8 @@ global_enable(void)
 
 void I2S_init(void)
 {
+	am_hal_gpio_pincfg_t gpio_config = {0};
+
 	//
 	// Disable all the counters.
 	//
@@ -337,29 +310,21 @@ void I2S_init(void)
 	               _VAL2FLD(CTIMER_CTRL0_TMRA0CLK, LRCLK_TIMER_CLOCK));//Timer3 Clock source is CTIMERA2 OUT
 
 	pwm_out();	
-	//
-	// Enable all the counters.
-	//
-	//global_enable();
+	global_enable();//I2S starts
 
-
-	//
-	// Clear the timer Interrupt
-	//
-	am_hal_ctimer_int_clear(LRCLK_TIMER_INT);
-
-	//
-	// Enable the timer Interrupt.
-	//
-	am_hal_ctimer_int_register(LRCLK_TIMER_INT,
-	               timer0_handler);
-
-	am_hal_ctimer_int_enable(LRCLK_TIMER_INT);
-
-	//
-	// Enable the timer interrupt in the NVIC.
-	//
-	//NVIC_EnableIRQ(CTIMER_IRQn);
+	gpio_config.uFuncSel = I2S_BCLK_CONFIG;
+	gpio_config.eGPInput = 1;
+	am_hal_gpio_pinconfig(I2S_BCLK, gpio_config);
+	
+	gpio_config.uFuncSel = I2S_WCLK_CONFIG;
+	gpio_config.eGPInput = 1;
+	am_hal_gpio_pinconfig(I2S_WCLK, gpio_config);
+	
+	gpio_config.uFuncSel = I2S_DATA_CONFIG;
+	gpio_config.eGPInput = 0;
+	am_hal_gpio_pinconfig(I2S_DATA, gpio_config);
+	
+	
 }
 
 
@@ -391,76 +356,7 @@ pdm_init(void)
 	sPinCfg.uFuncSel = AM_HAL_PIN_11_PDMDATA;
 	am_hal_gpio_pinconfig(11, sPinCfg);
 
-	//
-	// Configure and enable PDM interrupts (set up to trigger on DMA
-	// completion).
-	//
-	am_hal_pdm_interrupt_enable(PDMHandle, (AM_HAL_PDM_INT_DERR
-	                                        | AM_HAL_PDM_INT_DCMP
-	                                        | AM_HAL_PDM_INT_UNDFL
-	                                        | AM_HAL_PDM_INT_OVF));
-
-#if AM_CMSIS_REGS
-	NVIC_EnableIRQ(PDM_IRQn);
-#else
-	am_hal_interrupt_enable(AM_HAL_INTERRUPT_PDM);
-#endif
 }
-
-
-static void timer0_handler(void)
-{
-	static uint32_t g_bitflag = 0;
-	uint16_t ui16Pattern0 = 0;
-	uint16_t ui16Pattern1 = 0;
-	static uint32_t index = 0;
-	static int16_t *pcm_idx = i16I2SBuf[0];
-
-	am_hal_gpio_state_write(6, AM_HAL_GPIO_OUTPUT_CLEAR);
-
-	g_bitflag +=1;
-
-	ui16Pattern0 = reverse_bit16((uint16_t)*(pcm_idx+index));
-	ui16Pattern1 = reverse_bit16((uint16_t)*(pcm_idx+index+1));
-	//ui16Pattern0 = 0;
-	//ui16Pattern1 = 0;
-
-	
-	if(g_bitflag%2)
-	{
-	    am_hal_ctimer_compare_set(SDATA_TIMER, AM_HAL_CTIMER_TIMERA, 0, 
-	                            (uint32_t)(ui16Pattern0));
-	    am_hal_ctimer_compare_set(SDATA_TIMER, AM_HAL_CTIMER_TIMERA, 1, 
-	                            (uint32_t)(ui16Pattern0));
-	    am_hal_ctimer_aux_compare_set(SDATA_TIMER, AM_HAL_CTIMER_TIMERA, 0, 
-	                            (uint32_t)(ui16Pattern1));
-	    am_hal_ctimer_aux_compare_set(SDATA_TIMER, AM_HAL_CTIMER_TIMERA, 1, 
-	                            (uint32_t)(ui16Pattern1));
-	}
-	else
-	{
-	    am_hal_ctimer_compare_set(SDATA_TIMER, AM_HAL_CTIMER_TIMERB, 0, 
-	                            (uint32_t)(ui16Pattern0));
-	    am_hal_ctimer_compare_set(SDATA_TIMER, AM_HAL_CTIMER_TIMERB, 1, 
-	                            (uint32_t)(ui16Pattern0));
-	    am_hal_ctimer_aux_compare_set(SDATA_TIMER, AM_HAL_CTIMER_TIMERB, 0, 
-	                            (uint32_t)(ui16Pattern1));
-	    am_hal_ctimer_aux_compare_set(SDATA_TIMER, AM_HAL_CTIMER_TIMERB, 1, 
-	                            (uint32_t)(ui16Pattern1));
-	}
-	
-	index += 2;
-	if(index >= u32FrameSize)
-	{
-		index = 0;
-		pcm_idx = i16I2SBuf[(++u32I2SPingpong)%2];
-		am_hal_gpio_output_toggle(6);
-	}
-		
-	am_hal_gpio_state_write(6, AM_HAL_GPIO_OUTPUT_SET);
-	return;
-}
-
 
 //*****************************************************************************
 //
@@ -483,30 +379,10 @@ main(void)
 	am_hal_interrupt_master_disable();
 
 	I2S_init();
-	global_enable();//I2S starts
-	NVIC_EnableIRQ(CTIMER_IRQn);
-	am_hal_interrupt_master_enable();
-
+	
 
 	pdm_init();
 
-
-	am_hal_gpio_pinconfig(6, g_AM_HAL_GPIO_OUTPUT);
-	am_hal_gpio_pinconfig(8, g_AM_HAL_GPIO_OUTPUT);
-	am_hal_gpio_state_write(6, AM_HAL_GPIO_OUTPUT_SET);
-	am_hal_gpio_state_write(8, AM_HAL_GPIO_OUTPUT_SET);
-
-
-    //
-    // Turn ON Flash1
-    //
-    am_hal_pwrctrl_memory_enable(AM_HAL_PWRCTRL_MEM_FLASH_1M);
-
-
-    //
-    // Power on SRAM
-    //
-    PWRCTRL->MEMPWDINSLEEP_b.SRAMPWDSLP = PWRCTRL_MEMPWDINSLEEP_SRAMPWDSLP_NONE;
 
 	//
 	// Loop forever while sleeping.
