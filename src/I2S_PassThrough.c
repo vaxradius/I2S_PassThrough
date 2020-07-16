@@ -5,8 +5,6 @@
 #include "am_mcu_apollo.h"
 #include "am_bsp.h"
 #include "am_util.h"
-//#include "vogue.h"
-//#include "silent.h"
 
 
 #define MCLK_PIN	18
@@ -39,11 +37,8 @@
 // Global variables.
 //
 //*****************************************************************************
-volatile bool g_bPDMDataReady = false;
 
-int16_t i16PDMBuf[2][BUF_SIZE] = {{0},{0}};
 int16_t i16I2SBuf[2][BUF_SIZE] = {{0},{0}};
-uint32_t u32PDMPingpong = 0;
 uint32_t u32I2SPingpong = 0;
 uint32_t u32FrameSize = BUF_SIZE;
 
@@ -367,131 +362,6 @@ void I2S_init(void)
 	//NVIC_EnableIRQ(CTIMER_IRQn);
 }
 
-#define     IOM_MODULE          1 //gpio8 , gpi9
-#define     I2C_ADDR            0x34
-void *g_IOMHandle;
-static am_hal_iom_config_t g_sIOMI2cConfig =
-{
-    .eInterfaceMode = AM_HAL_IOM_I2C_MODE,
-    .ui32ClockFreq  = AM_HAL_IOM_400KHZ,
-};
-
-void SSM2529_Reg_read(uint32_t offset, uint32_t *pBuf, uint32_t size)
-{
-	am_hal_iom_transfer_t       Transaction;
-
-	Transaction.ui32InstrLen    = 1;
-	Transaction.ui32Instr       = offset;
-	Transaction.eDirection      = AM_HAL_IOM_RX;
-	Transaction.ui32NumBytes    = size;
-	Transaction.pui32RxBuffer   = pBuf;
-	Transaction.bContinue       = false;
-	Transaction.ui8RepeatCount  = 0;
-	Transaction.ui32PauseCondition = 0;
-	Transaction.ui32StatusSetClr = 0;
-	Transaction.uPeerInfo.ui32I2CDevAddr = I2C_ADDR;
-
-	am_hal_iom_blocking_transfer(g_IOMHandle, &Transaction);
-}
-
-void SSM2529_Reg_write(uint32_t offset, uint32_t *pBuf, uint32_t size)
-{
-	am_hal_iom_transfer_t       Transaction;
-
-	Transaction.ui32InstrLen    = 1;
-	Transaction.ui32Instr       = offset;
-	Transaction.eDirection      = AM_HAL_IOM_TX;
-	Transaction.ui32NumBytes    = size;
-	Transaction.pui32TxBuffer   = pBuf;
-	Transaction.bContinue       = false;
-	Transaction.ui8RepeatCount  = 0;
-	Transaction.ui32PauseCondition = 0;
-	Transaction.ui32StatusSetClr = 0;
-	Transaction.uPeerInfo.ui32I2CDevAddr = I2C_ADDR;
-
-	am_hal_iom_blocking_transfer(g_IOMHandle, &Transaction);
-}
-
-static void SSM2529_set_up(uint32_t iomModule)
-{
-	uint32_t data = 0;
-
-	//
-	// Initialize the IOM.
-	//
-	am_hal_iom_initialize(iomModule, &g_IOMHandle);
-
-	am_hal_iom_power_ctrl(g_IOMHandle, AM_HAL_SYSCTRL_WAKE, false);
-
-
-	//
-	// Set the required configuration settings for the IOM.
-	//
-	am_hal_iom_configure(g_IOMHandle, &g_sIOMI2cConfig);
-
-	//
-	// Configure the IOM pins.
-	//
-	am_bsp_iom_pins_enable(iomModule, AM_HAL_IOM_I2C_MODE);
-
-
-	//
-	// Enable the IOM.
-	//
-	am_hal_iom_enable(g_IOMHandle);
-
-
-	
-	data = 0x02;
-	SSM2529_Reg_write(0x00, &data, 1);
-	SSM2529_Reg_read(0x00, &data, 1);
-
-/*
-	data = 0x00;
-	SSM2529_Reg_write(0x05, &data, 1);
-	SSM2529_Reg_write(0x06, &data, 1);
-*/
-	//Address: 0x01, Reset: 0x20, Name: SYS_CTRL
-	data = 0x11;
-	SSM2529_Reg_write(0x01, &data, 1);
-	SSM2529_Reg_read(0x01, &data, 1);
-
-	//Address: 0x02, Reset: 0x02, Name: SAI_FMT1
-	data = 0x45;//Stereo I2S, left justified, right justified, 16kHz
-	SSM2529_Reg_write(0x02, &data, 1);
-	SSM2529_Reg_read(0x02, &data, 1);
-
-	//Address: 0x08, Reset: 0x00, Name: DPLL_CTRL
-	data = 0x17;//001 Select BCLK as DPLL reference clock,  0111 Reference clock frequency กั 16
-	//data = 0x16;//001 Select BCLK as DPLL reference clock,  0111 Reference clock frequency กั 32
-	SSM2529_Reg_write(0x08, &data, 1);
-	SSM2529_Reg_read(0x08, &data, 1);
-
-
-	//Address: 0x0E, Reset: 0x30, Name: APLL_CTRL6
-	// bit 5 Enable DPLL
-	// bit 3 DPLL locked(R) 
-	// bit 1 Enable internal PLL
-	// bit 0 Core clock enable
-	data = 0x03;
-	SSM2529_Reg_write(0x0E, &data, 1);
-	SSM2529_Reg_read(0x0E, &data, 1);
-
-	
-
-}
-
-
-static void SSM2529_probe(void)
-{
-	uint32_t data = 0;
-	SSM2529_Reg_read(0x05, &data, 1);
-	SSM2529_Reg_read(0x06, &data, 1);
-	SSM2529_Reg_read(0x07, &data, 1);
-	SSM2529_Reg_read(0x0F, &data, 1);
-	SSM2529_Reg_read(0x0E, &data, 1);
-}
-
 
 //*****************************************************************************
 //
@@ -537,56 +407,6 @@ pdm_init(void)
 #endif
 }
 
-
-//*****************************************************************************
-//
-// Start a transaction to get some number of bytes from the PDM interface.
-//
-//*****************************************************************************
-void
-pdm_data_get(int16_t *dest)
-{
-	//
-	// Configure DMA and target address.
-	//
-	//am_hal_pdm_disable(PDMHandle);
-	am_hal_pdm_transfer_t sTransfer;
-	sTransfer.ui32TargetAddr = (uint32_t ) dest;
-	sTransfer.ui32TotalCount = u32FrameSize*2;
-
-	//am_hal_pdm_fifo_flush(PDMHandle);
-
-	//
-	// Start the data transfer.
-	//
-	am_hal_pdm_dma_start(PDMHandle, &sTransfer);
-	//am_hal_pdm_enable(PDMHandle);
-}
-
-//*****************************************************************************
-//
-// PDM interrupt handler.
-//
-//*****************************************************************************
-void
-am_pdm0_isr(void)
-{
-	uint32_t ui32Status;
-	//am_hal_gpio_state_write(8 , AM_HAL_GPIO_OUTPUT_CLEAR);
-
-	//
-	// Read the interrupt status.
-	//
-	am_hal_pdm_interrupt_status_get(PDMHandle, &ui32Status, false);
-	am_hal_pdm_interrupt_clear(PDMHandle, ui32Status);
-
-	if (ui32Status & AM_HAL_PDM_INT_DCMP)
-	{
-		g_bPDMDataReady = true;
-		pdm_data_get(i16PDMBuf[(++u32PDMPingpong)%2]);
-	}
- 	//am_hal_gpio_output_toggle(8); 
-}
 
 static void timer0_handler(void)
 {
@@ -642,17 +462,6 @@ static void timer0_handler(void)
 }
 
 
-const am_hal_gpio_pincfg_t g_deepsleep_button0 =
-{
-    .uFuncSel = 3,
-    .eGPInput = AM_HAL_GPIO_PIN_INPUT_ENABLE,
-};
-
-void init_button0_detection(void)
-{
-	am_hal_gpio_pinconfig(AM_BSP_GPIO_BUTTON0, g_deepsleep_button0);
-}
-
 //*****************************************************************************
 //
 // Main
@@ -661,13 +470,6 @@ void init_button0_detection(void)
 int
 main(void)
 {
-	uint32_t index;
-	uint32_t u32PDMpg;
-	uint32_t u32I2Spg;
-	 am_hal_burst_avail_e          eBurstModeAvailable;
-	am_hal_burst_mode_e	eBurstMode;
-	uint32_t ui32PinValue = 1;
-	uint32_t ui32deBounce = 0;
 	//
 	// Perform the standard initialzation for clocks, cache settings, and
 	// board-level low-power operation.
@@ -677,43 +479,16 @@ main(void)
 	am_hal_cachectrl_enable();
 	am_bsp_low_power_init();
 
-#if 0
-	I2S_init();
-	global_enable();//I2S starts
-	NVIC_EnableIRQ(CTIMER_IRQn);
-	am_hal_interrupt_master_enable();
-	while(1);
 
-#else
 	am_hal_interrupt_master_disable();
 
-
-
-
-	//SSM2529_set_up(IOM_MODULE);
-
-	//
-	// Turn on the PDM, set it up for our chosen recording settings, and start
-	// the first DMA transaction.
-	//
-#if 1
 	I2S_init();
 	global_enable();//I2S starts
 	NVIC_EnableIRQ(CTIMER_IRQn);
 	am_hal_interrupt_master_enable();
-	//am_util_delay_ms(1);
-#endif
 
-#endif
-	
+
 	pdm_init();
-	am_hal_pdm_fifo_flush(PDMHandle);
-	am_hal_pdm_enable(PDMHandle);
-	
-
-	pdm_data_get(i16PDMBuf[0]);
-	//SSM2529_set_up(IOM_MODULE);
-
 
 
 	am_hal_gpio_pinconfig(6, g_AM_HAL_GPIO_OUTPUT);
@@ -721,16 +496,6 @@ main(void)
 	am_hal_gpio_state_write(6, AM_HAL_GPIO_OUTPUT_SET);
 	am_hal_gpio_state_write(8, AM_HAL_GPIO_OUTPUT_SET);
 
-
-	am_hal_burst_mode_initialize(&eBurstModeAvailable);
-
-	am_hal_burst_mode_enable(&eBurstMode);
-
-	    //
-    // Enable floating point.
-    //
-    am_hal_sysctrl_fpu_enable();
-    am_hal_sysctrl_fpu_stacking_enable(true);
 
     //
     // Turn ON Flash1
@@ -743,72 +508,16 @@ main(void)
     //
     PWRCTRL->MEMPWDINSLEEP_b.SRAMPWDSLP = PWRCTRL_MEMPWDINSLEEP_SRAMPWDSLP_NONE;
 
-	//Uart_Init();
-	init_button0_detection();
-
 	//
 	// Loop forever while sleeping.
 	//
 	while (1)
 	{
 
-		if(g_bPDMDataReady == true)
-		{
-			g_bPDMDataReady = false;
-
-			am_hal_gpio_output_toggle(8);
-
-			u32PDMpg = u32PDMPingpong;
-			u32I2Spg = u32I2SPingpong;
-
-
-
-			am_hal_gpio_state_read(AM_BSP_GPIO_BUTTON0, AM_HAL_GPIO_INPUT_READ, &ui32PinValue );
-			if(ui32PinValue == 0)
-			{
-				if(ui32deBounce++ >= 3)
-					u32FrameSize = 128;
-			}
-			else
-			{
-				ui32deBounce = 0;
-				u32FrameSize = BUF_SIZE;
-			}
-
-			am_util_delay_ms(13);
-
-			
-#if 0
-			if(index > VOGUE_SIZE)
-				index = 4096;
-
-			memcpy( i16I2SBuf[(u32I2Spg+1)%2],(int16_t*)(vogue+index),u32FrameSize*2);
-			index += u32FrameSize;
-			
-
-
-#else
-			/*Copy preprocessed data into NEXT I2S Buffer*/
-			memcpy( i16I2SBuf[(u32I2Spg+1)%2],i16PDMBuf[(u32PDMpg-1)%2],u32FrameSize*2);
-#endif
-			if(u32I2Spg != u32I2SPingpong)
-			{
-				while(1);
-			}
-
-			if(u32PDMpg != u32PDMPingpong)
-			{
-				while(1);
-			}
-
-		}
 		//
 		// Go to Deep Sleep.
 		//
-		//am_hal_gpio_output_toggle(6);
 		am_hal_sysctrl_sleep(AM_HAL_SYSCTRL_SLEEP_DEEP);
-		//am_hal_gpio_output_toggle(6);
-
 	}
 }
 
